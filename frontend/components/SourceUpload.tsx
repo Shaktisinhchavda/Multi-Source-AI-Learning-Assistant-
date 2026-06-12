@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useCallback } from "react";
 import type { Source } from "@/lib/api";
-import { uploadFile } from "@/lib/api";
+import { uploadFile, addUrlSource } from "@/lib/api";
 import SourceBadge from "./SourceBadge";
 
 interface SourceUploadProps {
@@ -99,11 +99,49 @@ export default function SourceUpload({
     }
   };
 
+  const detectUrlType = (url: string): "youtube" | "webpage" => {
+    const ytPatterns = [
+      /youtube\.com\/watch/,
+      /youtu\.be\//,
+      /youtube\.com\/embed/,
+    ];
+    for (const pattern of ytPatterns) {
+      if (pattern.test(url)) return "youtube";
+    }
+    return "webpage";
+  };
+
   const handleUrlSubmit = async () => {
-    if (!urlInput.trim()) return;
-    // URL processing will be added in Phase 2
-    onError("URL processing is coming soon! For now, please upload PDF files.");
-    setUrlInput("");
+    const url = urlInput.trim();
+    if (!url || !sessionId) return;
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    const sourceType = detectUrlType(url);
+
+    try {
+      const result = await addUrlSource(sessionId, url, sourceType);
+
+      const newSource: Source = {
+        id: result.source_id,
+        session_id: sessionId,
+        source_type: result.source_type as Source["source_type"],
+        source_name: result.source_name,
+        summary: result.summary,
+        chunk_count: result.chunk_count,
+        status: "ready",
+        created_at: new Date().toISOString(),
+      };
+
+      onSourceAdded(newSource);
+      setUrlInput("");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "URL processing failed");
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   return (
