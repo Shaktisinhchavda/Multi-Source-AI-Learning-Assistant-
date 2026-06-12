@@ -33,7 +33,8 @@ AS-1/
 │   ├── main.py                 # FastAPI entry point
 │   ├── config.py               # Environment settings
 │   ├── schema.sql              # Supabase database schema
-│   ├── requirements.txt        # Python dependencies
+│   ├── pyproject.toml          # Python dependencies (uv)
+│   ├── uv.lock                 # Lockfile
 │   ├── .env.example            # Env template
 │   ├── processors/
 │   │   ├── pdf.py              # PDF text extraction
@@ -66,6 +67,7 @@ AS-1/
 ### Prerequisites
 
 - **Python 3.11+**
+- **uv** — [Install here](https://docs.astral.sh/uv/getting-started/installation/)
 - **Node.js 18+**
 - **Ollama** — [Install here](https://ollama.ai)
 - **Supabase account** — [Sign up free](https://supabase.com)
@@ -88,24 +90,15 @@ cd AS-1
 ```bash
 cd backend
 
-# Create virtual environment
-python -m venv venv
-
-# Activate it
-# Windows:
-venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (creates .venv automatically)
+uv sync
 
 # Configure environment
 cp .env.example .env
 # Edit .env with your Supabase URL + Key
 
 # Start the backend
-uvicorn main:app --reload --port 8000
+uv run uvicorn main:app --reload --port 8000
 ```
 
 ### 4. Ollama Models

@@ -36,3 +36,7 @@ up questions work naturally.
 • Support multiple simultaneous sources and indicate which source each answer came from
 • Add a "quiz me" mode that auto-generates questions based on the loaded content
 • Show a short summary of each source once it has been processed
+
+# commit
+
+the commit history matters so we have to go phase by phase not in just one go
