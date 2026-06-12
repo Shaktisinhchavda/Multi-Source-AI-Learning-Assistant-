@@ -1,18 +1,22 @@
 """
-YouTube processor — extracts transcript with timestamps.
+YouTube processor — extracts transcript/subtitles with timestamps.
+Uses yt-dlp (robust) with youtube-transcript-api as fallback.
 """
 
 import re
-from youtube_transcript_api import YouTubeTranscriptApi
+import json
+import time
+import logging
+import tempfile
+import os
 from .chunker import chunk_text
+
+logger = logging.getLogger(__name__)
 
 
 def extract_video_id(url: str) -> str:
     """
-    Extract video ID from various YouTube URL formats:
-    - https://www.youtube.com/watch?v=VIDEO_ID
-    - https://youtu.be/VIDEO_ID
-    - https://www.youtube.com/embed/VIDEO_ID
+    Extract video ID from various YouTube URL formats.
     """
     patterns = [
         r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
@@ -36,57 +40,221 @@ def _format_timestamp(seconds: float) -> str:
     return f"{mins}:{secs:02d}"
 
 
+def _fetch_with_ytdlp(video_id: str) -> list[dict]:
+    """
+    Fetch subtitles using yt-dlp. Returns list of {text, start} dicts.
+    More robust against rate limiting than youtube-transcript-api.
+    """
+    import yt_dlp
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    ydl_opts = {
+        'skip_download': True,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitleslangs': ['en', 'en-US', 'en-GB'],
+        'subtitlesformat': 'json3',
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            raise ValueError(f"yt-dlp failed to fetch video info: {str(e)}")
+
+        # Check for subtitles
+        subtitles = info.get('subtitles', {})
+        auto_captions = info.get('automatic_captions', {})
+
+        # Try manual subs first, then auto-captions
+        sub_data = None
+        for lang in ['en', 'en-US', 'en-GB']:
+            if lang in subtitles:
+                sub_data = subtitles[lang]
+                break
+        if not sub_data:
+            for lang in ['en', 'en-US', 'en-GB']:
+                if lang in auto_captions:
+                    sub_data = auto_captions[lang]
+                    break
+
+        # If no English, try any language
+        if not sub_data:
+            if subtitles:
+                sub_data = next(iter(subtitles.values()))
+            elif auto_captions:
+                sub_data = next(iter(auto_captions.values()))
+
+        if not sub_data:
+            raise ValueError("No subtitles or auto-captions available.")
+
+        # Find json3 format or fall back to any format
+        json3_url = None
+        for fmt in sub_data:
+            if fmt.get('ext') == 'json3':
+                json3_url = fmt.get('url')
+                break
+
+        # If we have json3 URL, fetch and parse it
+        if json3_url:
+            import httpx
+            resp = httpx.get(json3_url, timeout=30.0)
+            resp.raise_for_status()
+            caption_data = resp.json()
+
+            segments = []
+            for event in caption_data.get('events', []):
+                start_ms = event.get('tStartMs', 0)
+                segs = event.get('segs', [])
+                text = ''.join(s.get('utf8', '') for s in segs).strip()
+                if text and text != '\n':
+                    segments.append({
+                        'text': text,
+                        'start': start_ms / 1000.0,
+                    })
+            return segments
+
+        # Fallback: try to get vtt/srv formats and parse text
+        # Use yt-dlp to write subs to a temp file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dl_opts = {
+                **ydl_opts,
+                'outtmpl': os.path.join(tmpdir, '%(id)s'),
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+            }
+            with yt_dlp.YoutubeDL(dl_opts) as ydl2:
+                ydl2.download([url])
+
+            # Find the subtitle file
+            for f in os.listdir(tmpdir):
+                if f.endswith('.vtt') or f.endswith('.srt'):
+                    filepath = os.path.join(tmpdir, f)
+                    return _parse_vtt_file(filepath)
+
+        raise ValueError("Could not parse subtitle data.")
+
+
+def _parse_vtt_file(filepath: str) -> list[dict]:
+    """Parse a VTT/SRT subtitle file into segments."""
+    segments = []
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Simple VTT/SRT parser
+    time_pattern = r'(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})'
+    lines = content.split('\n')
+    current_time = 0
+    current_text = []
+
+    for line in lines:
+        line = line.strip()
+        time_match = re.search(f'{time_pattern}\\s*-->\\s*{time_pattern}', line)
+        if time_match:
+            # Save previous segment
+            if current_text:
+                text = ' '.join(current_text).strip()
+                if text:
+                    segments.append({'text': text, 'start': current_time})
+            current_text = []
+            h, m, s, ms = int(time_match.group(1)), int(time_match.group(2)), int(time_match.group(3)), int(time_match.group(4))
+            current_time = h * 3600 + m * 60 + s + ms / 1000.0
+        elif line and not line.isdigit() and 'WEBVTT' not in line:
+            # Remove HTML tags
+            clean = re.sub(r'<[^>]+>', '', line)
+            if clean.strip():
+                current_text.append(clean.strip())
+
+    # Last segment
+    if current_text:
+        text = ' '.join(current_text).strip()
+        if text:
+            segments.append({'text': text, 'start': current_time})
+
+    return segments
+
+
+def _fetch_with_transcript_api(video_id: str) -> list[dict]:
+    """Fallback: fetch using youtube-transcript-api."""
+    from youtube_transcript_api import YouTubeTranscriptApi
+
+    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+    try:
+        transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
+    except Exception:
+        transcript = next(iter(transcript_list))
+        try:
+            transcript = transcript.translate('en')
+        except Exception:
+            pass
+
+    raw_segments = transcript.fetch()
+    segments = []
+    for seg in raw_segments:
+        start = seg.start if hasattr(seg, 'start') else seg.get('start', 0)
+        text = seg.text if hasattr(seg, 'text') else seg.get('text', '')
+        segments.append({'text': text, 'start': start})
+
+    return segments
+
+
 def process_youtube(url: str) -> dict:
     """
     Full YouTube processing pipeline:
     1. Extract video ID
-    2. Fetch transcript
-    3. Group transcript segments into chunks with timestamps
+    2. Fetch transcript (yt-dlp primary, transcript-api fallback)
+    3. Group segments into chunks with timestamps
     4. Generate a summary
 
     Returns: {chunks: [...], summary: str, video_id: str}
     """
     video_id = extract_video_id(url)
 
-    try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        # Try to get English transcript, or first available
-        try:
-            transcript = transcript_list.find_transcript(['en'])
-        except Exception:
-            # Get the first available and translate to English if possible
-            transcript = next(iter(transcript_list))
-            try:
-                transcript = transcript.translate('en')
-            except Exception:
-                pass  # Use whatever language is available
+    # Try yt-dlp first (more robust), fall back to transcript API
+    segments = None
+    errors = []
 
-        segments = transcript.fetch()
+    try:
+        logger.info(f"Fetching transcript via yt-dlp for {video_id}")
+        segments = _fetch_with_ytdlp(video_id)
     except Exception as e:
-        raise ValueError(
-            f"Could not fetch transcript for video '{video_id}'. "
-            f"The video may not have captions available. Error: {str(e)}"
-        )
+        errors.append(f"yt-dlp: {str(e)}")
+        logger.warning(f"yt-dlp failed for {video_id}: {e}")
 
     if not segments:
-        raise ValueError(f"No transcript content found for video '{video_id}'.")
+        try:
+            logger.info(f"Falling back to transcript API for {video_id}")
+            segments = _fetch_with_transcript_api(video_id)
+        except Exception as e:
+            errors.append(f"transcript-api: {str(e)}")
+            logger.warning(f"transcript API also failed for {video_id}: {e}")
+
+    if not segments:
+        raise ValueError(
+            f"Could not fetch subtitles for video '{video_id}'. "
+            f"The video may not have captions available.\n"
+            f"Details: {'; '.join(errors)}"
+        )
 
     # Group segments into ~30-second windows with timestamps
     grouped_segments = []
     current_text = []
     current_start = 0
-    window_duration = 30  # seconds per group
+    window_duration = 30
 
     for segment in segments:
-        seg_start = segment.start if hasattr(segment, 'start') else segment.get('start', 0)
-        seg_text = segment.text if hasattr(segment, 'text') else segment.get('text', '')
+        seg_start = segment.get('start', 0)
+        seg_text = segment.get('text', '')
 
         if not current_text:
             current_start = seg_start
 
         current_text.append(seg_text)
 
-        # Check if we've exceeded the window
         if seg_start - current_start >= window_duration:
             timestamp = _format_timestamp(current_start)
             grouped_segments.append({
@@ -96,7 +264,6 @@ def process_youtube(url: str) -> dict:
             })
             current_text = []
 
-    # Don't forget the last group
     if current_text:
         timestamp = _format_timestamp(current_start)
         grouped_segments.append({
@@ -118,7 +285,7 @@ def process_youtube(url: str) -> dict:
         )
         all_chunks.extend(chunks)
 
-    # Generate summary from first few segments
+    # Generate summary
     full_text = " ".join(g["text"] for g in grouped_segments[:5])
     summary = full_text[:500].strip()
     if len(full_text) > 500:
