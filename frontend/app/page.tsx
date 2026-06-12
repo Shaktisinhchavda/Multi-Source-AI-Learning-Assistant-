@@ -5,10 +5,14 @@ import { createSession } from "@/lib/api";
 import type { Source } from "@/lib/api";
 import SourceUpload from "@/components/SourceUpload";
 import ChatPanel from "@/components/ChatPanel";
+import QuizMode from "@/components/QuizMode";
+
+type AppMode = "chat" | "quiz";
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [mode, setMode] = useState<AppMode>("chat");
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -44,6 +48,7 @@ export default function Home() {
   const handleNewSession = async () => {
     setSources([]);
     setSessionId(null);
+    setMode("chat");
     await initSession();
     showToast("New session started!", "success");
   };
@@ -74,11 +79,23 @@ export default function Home() {
           </h1>
         </div>
         <div className="header-session">
-          {sessionId && (
-            <span className="header-session-id">
-              {sessionId.slice(0, 8)}...
-            </span>
-          )}
+          {/* Mode Toggle */}
+          <div className="mode-toggle">
+            <button
+              className={`mode-toggle-btn ${mode === "chat" ? "active" : ""}`}
+              onClick={() => setMode("chat")}
+              id="mode-chat-btn"
+            >
+              💬 Chat
+            </button>
+            <button
+              className={`mode-toggle-btn ${mode === "quiz" ? "active" : ""}`}
+              onClick={() => setMode("quiz")}
+              id="mode-quiz-btn"
+            >
+              🎯 Quiz
+            </button>
+          </div>
           <button
             className="new-session-btn"
             onClick={handleNewSession}
@@ -107,12 +124,22 @@ export default function Home() {
           />
         </aside>
 
-        {/* Chat Panel */}
-        <ChatPanel
-          sessionId={sessionId}
-          hasSourcesReady={hasSourcesReady}
-          onError={handleError}
-        />
+        {/* Chat or Quiz Panel */}
+        {mode === "chat" ? (
+          <ChatPanel
+            sessionId={sessionId}
+            hasSourcesReady={hasSourcesReady}
+            onError={handleError}
+          />
+        ) : (
+          <div className="chat-panel">
+            <QuizMode
+              sessionId={sessionId}
+              hasSourcesReady={hasSourcesReady}
+              onError={handleError}
+            />
+          </div>
+        )}
       </main>
 
       {/* Toast Notification */}

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.sessions import router as sessions_router
 from routes.sources import router as sources_router
 from routes.chat import router as chat_router
+from routes.quiz import router as quiz_router
 
 app = FastAPI(
     title="AI Knowledge Chatbot",
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(sessions_router)
 app.include_router(sources_router)
 app.include_router(chat_router)
+app.include_router(quiz_router)
 
 
 @app.get("/")

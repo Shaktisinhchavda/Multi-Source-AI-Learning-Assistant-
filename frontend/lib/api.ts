@@ -216,3 +216,69 @@ export function streamChat(
 
   return controller;
 }
+
+// ---- Quiz API ----
+
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correct: string;
+  explanation: string;
+  source_ref: string;
+}
+
+export interface QuizResult {
+  questions: QuizQuestion[];
+  total: number;
+}
+
+export interface AnswerCheck {
+  is_correct: boolean;
+  correct_answer: string;
+  feedback: string;
+  explanation: string;
+}
+
+export async function generateQuiz(
+  sessionId: string,
+  numQuestions: number = 5
+): Promise<QuizResult> {
+  const res = await fetch(`${API_BASE}/api/quiz/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      num_questions: numQuestions,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Quiz generation failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function checkAnswer(
+  sessionId: string,
+  question: string,
+  userAnswer: string,
+  correctAnswer: string,
+  explanation: string
+): Promise<AnswerCheck> {
+  const res = await fetch(`${API_BASE}/api/quiz/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      question,
+      user_answer: userAnswer,
+      correct_answer: correctAnswer,
+      explanation,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Answer check failed: ${res.statusText}`);
+  }
+  return res.json();
+}
