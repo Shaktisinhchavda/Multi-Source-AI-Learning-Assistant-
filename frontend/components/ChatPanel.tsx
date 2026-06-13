@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import type { SourceRef } from "@/lib/api";
-import { streamChat } from "@/lib/api";
+import { getHistory, streamChat } from "@/lib/api";
 import MessageBubble from "./MessageBubble";
 
 interface ChatMessage {
@@ -19,6 +19,21 @@ interface ChatPanelProps {
   onError: (message: string) => void;
 }
 
+const normalizeSources = (sources: unknown): SourceRef[] => {
+  if (Array.isArray(sources)) {
+    return sources as SourceRef[];
+  }
+  if (typeof sources === "string" && sources.trim()) {
+    try {
+      const parsed = JSON.parse(sources);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
 export default function ChatPanel({
   sessionId,
   hasSourcesReady,
@@ -30,6 +45,47 @@ export default function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Load persisted session messages when the chat panel mounts/remounts.
+  useEffect(() => {
+    if (!sessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(false);
+
+    getHistory(sessionId)
+      .then((history) => {
+        if (cancelled) return;
+        setMessages(
+          history.map((msg) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            sources: normalizeSources(msg.sources),
+            isStreaming: false,
+          }))
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          onError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load chat history"
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, [sessionId, onError]);
 
   // Auto-scroll to bottom
   useEffect(() => {

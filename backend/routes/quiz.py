@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from supabase import create_client
 from config import get_settings
 import httpx
+from rag.gemini import post_json_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -389,9 +390,13 @@ User's Answer: {user_answer}
 Respond with a brief, encouraging evaluation. If they got it right, congratulate them. If wrong, explain the correct answer kindly. Keep it to 2-3 sentences."""
 
 
-async def _chat_ollama_simple(messages: list[dict], response_format: str | None = None) -> str:
-    """Simple non-streaming Ollama chat call."""
+async def _chat_simple(messages: list[dict], response_format: str | None = None) -> str:
+    """Simple non-streaming chat call using the configured provider."""
     settings = get_settings()
+
+    if settings.llm_provider == "gemini":
+        return await _chat_gemini_simple(messages, settings)
+
     payload = {
         "model": settings.ollama_chat_model,
         "messages": messages,
@@ -408,6 +413,50 @@ async def _chat_ollama_simple(messages: list[dict], response_format: str | None 
         response.raise_for_status()
         data = response.json()
         return data["message"]["content"]
+
+
+async def _chat_gemini_simple(messages: list[dict], settings) -> str:
+    """Simple non-streaming Gemini call."""
+    if not settings.gemini_api_key:
+        raise ValueError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
+
+    system_parts = []
+    contents = []
+    for message in messages:
+        role = message["role"]
+        content = message["content"]
+        if role == "system":
+            system_parts.append({"text": content})
+            continue
+        contents.append({
+            "role": "model" if role == "assistant" else "user",
+            "parts": [{"text": content}],
+        })
+
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.2,
+        },
+    }
+    if system_parts:
+        payload["systemInstruction"] = {"parts": system_parts}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        data = await post_json_with_retries(
+            client=client,
+            url=f"{settings.gemini_base_url}/models/{settings.gemini_chat_model}:generateContent",
+            params={"key": settings.gemini_api_key},
+            payload=payload,
+            settings=settings,
+            operation="quiz",
+        )
+        parts = (
+            data.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [])
+        )
+        return "".join(part.get("text", "") for part in parts)
 
 
 @router.post("/generate")
@@ -523,7 +572,7 @@ CRITICAL: Generate exactly {source_question_count} multiple-choice quiz question
 
             source_questions = []
             for response_format in ("json", None):
-                response_text = await _chat_ollama_simple(
+                response_text = await _chat_simple(
                     [{"role": "user", "content": user_content}],
                     response_format=response_format,
                 )
@@ -603,7 +652,7 @@ async def check_answer(body: QuizCheckRequest):
     ]
 
     try:
-        feedback = await _chat_ollama_simple(messages)
+        feedback = await _chat_simple(messages)
         is_correct = body.user_answer.strip().upper() == body.correct_answer.strip().upper()
 
         return {

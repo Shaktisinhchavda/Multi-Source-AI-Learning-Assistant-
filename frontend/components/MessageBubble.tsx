@@ -118,6 +118,12 @@ export default function MessageBubble({
     });
   }, [sources]);
 
+  const isOutOfScopeDecline =
+    role === "assistant" &&
+    /i couldn'?t find information about that in the provided sources/i.test(
+      content
+    );
+
   return (
     <div className={`message ${role}`}>
       <div className="message-avatar">
@@ -140,7 +146,7 @@ export default function MessageBubble({
             />
           )}
         </div>
-        {groupedSources.length > 0 && !isStreaming && (
+        {groupedSources.length > 0 && !isStreaming && !isOutOfScopeDecline && (
           <div className="message-sources">
             {groupedSources.map((s, i) => (
               <span key={i} className="message-source-tag">

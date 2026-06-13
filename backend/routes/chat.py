@@ -19,6 +19,11 @@ class ChatRequest(BaseModel):
     stream: bool = True
 
 
+def _is_out_of_scope_decline(content: str) -> bool:
+    """Detect the standard grounded-answer refusal."""
+    return "couldn't find information about that in the provided sources" in content.lower()
+
+
 @router.post("")
 async def chat(body: ChatRequest):
     """
@@ -83,14 +88,18 @@ async def chat(body: ChatRequest):
         )
 
         # Save assistant message
+        result_sources = [] if _is_out_of_scope_decline(result["response"]) else result["sources"]
         client.table("messages").insert({
             "session_id": body.session_id,
             "role": "assistant",
             "content": result["response"],
-            "sources": json.dumps(result["sources"]),
+            "sources": result_sources,
         }).execute()
 
-        return result
+        return {
+            **result,
+            "sources": result_sources,
+        }
 
 
 async def _stream_chat(
@@ -118,10 +127,12 @@ async def _stream_chat(
             yield f"data: {chunk}\n\n"
         elif parsed["type"] == "done":
             # Save the complete assistant message
+            if _is_out_of_scope_decline(full_response):
+                sources_data = []
             client.table("messages").insert({
                 "session_id": session_id,
                 "role": "assistant",
                 "content": full_response,
-                "sources": json.dumps(sources_data),
+                "sources": sources_data,
             }).execute()
             yield f"data: {chunk}\n\n"

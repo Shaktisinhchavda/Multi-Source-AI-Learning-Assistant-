@@ -15,10 +15,17 @@ class Settings(BaseSettings):
 
     # Gemini (production)
     gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     # Model names
     ollama_chat_model: str = "qwen2.5:3b"
     ollama_embed_model: str = "nomic-embed-text"
+    gemini_chat_model: str = "gemini-2.5-flash"
+    gemini_embed_model: str = "gemini-embedding-001"
+    gemini_embed_dimensions: int = 768
+    gemini_max_retries: int = 4
+    gemini_retry_base_seconds: float = 2.0
+    gemini_retry_max_seconds: float = 30.0
 
     class Config:
         env_file = ".env"

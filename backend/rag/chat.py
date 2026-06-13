@@ -4,6 +4,7 @@ Builds a grounded prompt with retrieved context and conversation history.
 """
 
 import httpx
+import asyncio
 import json
 import re
 from typing import AsyncGenerator
@@ -15,6 +16,7 @@ from rag.vectorstore import (
     get_session_sources,
     get_chunks_for_sources,
 )
+from rag.gemini import post_json_with_retries, RETRYABLE_STATUS_CODES, extract_error_message
 
 
 SYSTEM_PROMPT = """You are a helpful AI assistant that answers questions based ONLY on the provided source material. Follow these rules strictly:
@@ -455,11 +457,115 @@ async def _stream_ollama(messages: list[dict], settings) -> AsyncGenerator[str, 
 
 
 async def _chat_gemini(messages: list[dict], settings) -> str:
-    """Gemini chat — placeholder for Phase 5."""
-    raise NotImplementedError("Gemini chat not yet implemented. Use ollama for development.")
+    """Non-streaming chat via Gemini."""
+    if not settings.gemini_api_key:
+        raise ValueError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
+
+    payload = _build_gemini_payload(messages)
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        data = await post_json_with_retries(
+            client=client,
+            url=_gemini_url(settings, "generateContent"),
+            params={"key": settings.gemini_api_key},
+            payload=payload,
+            settings=settings,
+            operation="chat",
+        )
+        return _extract_gemini_text(data)
 
 
 async def _stream_gemini(messages: list[dict], settings) -> AsyncGenerator[str, None]:
-    """Gemini streaming — placeholder for Phase 5."""
-    raise NotImplementedError("Gemini streaming not yet implemented.")
-    yield  # Make it a generator
+    """Streaming chat via Gemini SSE."""
+    if not settings.gemini_api_key:
+        raise ValueError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
+
+    payload = _build_gemini_payload(messages)
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        max_retries = max(0, settings.gemini_max_retries)
+        for attempt in range(max_retries + 1):
+            async with client.stream(
+                "POST",
+                _gemini_url(settings, "streamGenerateContent"),
+                params={
+                    "key": settings.gemini_api_key,
+                    "alt": "sse",
+                },
+                json=payload,
+            ) as response:
+                if response.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries:
+                    await asyncio.sleep(
+                        min(
+                            settings.gemini_retry_base_seconds * (2 ** attempt),
+                            settings.gemini_retry_max_seconds,
+                        )
+                    )
+                    continue
+                if response.status_code >= 400:
+                    await response.aread()
+                    detail = extract_error_message(response)
+                    if response.status_code == 429:
+                        detail = (
+                            "Gemini rate limit reached. Please wait a bit and try again. "
+                            f"Details: {detail}"
+                        )
+                    raise ValueError(
+                        f"Gemini streaming chat request failed with HTTP "
+                        f"{response.status_code}: {detail}"
+                    )
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = json.loads(line.removeprefix("data: ").strip())
+                    token = _extract_gemini_text(data)
+                    if token:
+                        yield token
+                return
+
+
+def _gemini_url(settings, action: str) -> str:
+    """Build a Gemini model action URL."""
+    return (
+        f"{settings.gemini_base_url}/models/"
+        f"{settings.gemini_chat_model}:{action}"
+    )
+
+
+def _build_gemini_payload(messages: list[dict]) -> dict:
+    """Convert local chat messages to Gemini generateContent payload."""
+    system_parts = []
+    contents = []
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"]
+
+        if role == "system":
+            system_parts.append({"text": content})
+            continue
+
+        contents.append({
+            "role": "model" if role == "assistant" else "user",
+            "parts": [{"text": content}],
+        })
+
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.2,
+        },
+    }
+    if system_parts:
+        payload["systemInstruction"] = {"parts": system_parts}
+
+    return payload
+
+
+def _extract_gemini_text(data: dict) -> str:
+    """Extract text from a Gemini response chunk."""
+    parts = (
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [])
+    )
+    return "".join(part.get("text", "") for part in parts)
