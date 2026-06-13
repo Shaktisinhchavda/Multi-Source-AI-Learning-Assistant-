@@ -3,6 +3,7 @@ AI Knowledge Chatbot — FastAPI Backend
 Main entry point with CORS configuration and router mounting.
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes.sessions import router as sessions_router
@@ -16,14 +17,26 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — allow frontend dev server
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+def _get_allowed_origins() -> list[str]:
+    """Return local, production, and env-configured frontend origins."""
+    default_origins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "https://multi-source-ai-learning-assistant.vercel.app",
-    ],
+    ]
+    env_origins = [
+        origin.strip().rstrip("/")
+        for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    return list(dict.fromkeys([*default_origins, *env_origins]))
+
+
+# CORS — allow local dev, production frontend, and optional FRONTEND_ORIGINS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_get_allowed_origins(),
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
