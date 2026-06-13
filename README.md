@@ -1,122 +1,188 @@
-# 🧠 KnowledgeBot — AI-Powered Knowledge Assistant
+# KnowledgeBot: Multi-Source AI Learning Assistant
 
-A web-based AI chatbot that accepts knowledge sources (YouTube, PDF, PPTX, Webpage), processes them into vector embeddings, and answers questions grounded strictly in that content — with source citations.
+KnowledgeBot is a web-based AI chatbot that helps users learn from their own study material. Users can upload or link multiple knowledge sources in one session, ask questions about that material, request simple explanations, and generate quizzes from the loaded content.
 
-![KnowledgeBot UI](image.png)
+The application follows a retrieval-augmented generation (RAG) workflow: each source is parsed, chunked, embedded, stored in Supabase with pgvector, and retrieved before calling the selected LLM. Answers are grounded in the provided sources and include citations such as PDF pages, slide numbers, webpage sections, or video timestamps where available.
 
-## ✨ Features
+Live application: https://multi-source-ai-learning-assistant.vercel.app
 
-- **Multi-source support** — Upload PDFs, PPTX, paste YouTube or webpage URLs
-- **RAG-powered answers** — Uses vector embeddings + similarity search, not full-doc prompting
-- **Source citations** — Every answer references where the info came from (page, slide, timestamp)
-- **Streaming responses** — Token-by-token streaming via SSE
-- **Session memory** — Follow-up questions work naturally within a session
-- **Quiz mode** — Auto-generates source-aware questions based on loaded content
-- **Graceful decline** — Politely refuses out-of-scope questions
+## Assignment Coverage
 
-## 🏗️ Tech Stack
+| Requirement | Implementation |
+| --- | --- |
+| FastAPI backend | Python backend built with FastAPI and modular route/processors/RAG packages |
+| React / Next.js frontend | Next.js App Router frontend with a clean chat interface and source management UI |
+| Supabase | Stores sessions, sources, messages, chunks, and vector embeddings |
+| LLM integration | Supports local Ollama for development and Gemini for production-style usage |
+| PDF support | Extracts text, chunks content, and stores page-aware metadata |
+| PowerPoint support | Parses PPTX slides and preserves slide-level references |
+| YouTube support | Extracts transcript content where available and stores timestamp metadata |
+| Public webpage support | Scrapes and parses webpage text for retrieval |
+| Multiple sources per session | Users can combine PDFs, PPTX files, YouTube URLs, and webpages in one chat session |
+| Grounded answers | Chat responses are generated only from retrieved source chunks |
+| Source citations | Answers return references to the content used |
+| Streaming responses | Chat replies stream token by token from the backend |
+| Session memory | Conversation history is stored for the active session |
+| Quiz mode | Generates source-aware quiz questions from loaded content |
+| Source summaries | Each processed source returns a short summary |
+
+## Core Features
+
+- Multi-source ingestion for PDF, PPTX, YouTube URLs, and public webpage URLs.
+- Retrieval-based answering using chunked content and vector similarity search.
+- Source-grounded citations for user-facing answers.
+- Streaming chat responses using server-sent events.
+- Session-scoped chat history for natural follow-up questions.
+- Source badges that show loaded content and processing status.
+- Quiz generation and answer checking based on uploaded or linked sources.
+- Out-of-scope handling when the answer is not supported by the provided material.
+
+## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js (App Router) + TypeScript + Vanilla CSS |
-| **Backend** | FastAPI (Python) |
-| **Database** | Supabase (PostgreSQL + pgvector) |
-| **LLM (Dev)** | Ollama — qwen2.5:1.5b |
-| **LLM (Prod)** | Google Gemini — gemini-2.5-flash |
-| **Embeddings** | Ollama nomic-embed-text or Gemini gemini-embedding-001 (768-dim) |
+| --- | --- |
+| Frontend | Next.js 16, React 19, TypeScript, CSS |
+| Backend | FastAPI, Python 3.11, uv |
+| Database | Supabase PostgreSQL with pgvector |
+| Local LLM | Ollama chat and embedding models |
+| Cloud LLM | Google Gemini chat and embedding models |
+| Retrieval | Chunking, embeddings, Supabase vector search |
+| Streaming | Server-sent events from FastAPI to the frontend |
 
-## 📁 Project Structure
+## Project Structure
 
-```
+```text
 AS-1/
-├── backend/
-│   ├── main.py                 # FastAPI entry point
-│   ├── config.py               # Environment settings
-│   ├── schema.sql              # Supabase database schema
-│   ├── pyproject.toml          # Python dependencies (uv)
-│   ├── uv.lock                 # Lockfile
-│   ├── .env.example            # Env template
-│   ├── processors/
-│   │   ├── pdf.py              # PDF text extraction
-│   │   ├── pptx.py             # PowerPoint text extraction
-│   │   ├── webpage.py          # Webpage scraping/parsing
-│   │   ├── youtube.py          # YouTube transcript extraction
-│   │   └── chunker.py          # Text chunking with metadata
-│   ├── rag/
-│   │   ├── embeddings.py       # Vector embedding generation
-│   │   ├── vectorstore.py      # Supabase pgvector operations
-│   │   ├── gemini.py           # Gemini API retry/error helpers
-│   │   └── chat.py             # RAG chat engine
-│   └── routes/
-│       ├── sessions.py         # Session management API
-│       ├── sources.py          # Source upload/processing API
-│       ├── chat.py             # Chat API (streaming + non-streaming)
-│       └── quiz.py             # Quiz generation/checking API
-├── frontend/
-│   ├── app/
-│   │   ├── globals.css         # Design system
-│   │   ├── layout.tsx          # Root layout
-│   │   └── page.tsx            # Main page
-│   ├── components/
-│   │   ├── ChatPanel.tsx       # Chat interface
-│   │   ├── MessageBubble.tsx   # Message rendering
-│   │   ├── SourceUpload.tsx    # File upload + URL input
-│   │   ├── SourceBadge.tsx     # Source status badges
-│   │   └── QuizMode.tsx        # Source-aware quiz UI
-│   └── lib/
-│       └── api.ts              # Backend API client
-└── README.md
+|-- assignment.md
+|-- image.png
+|-- README.md
+|-- backend/
+|   |-- main.py
+|   |-- config.py
+|   |-- schema.sql
+|   |-- pyproject.toml
+|   |-- .env.example
+|   |-- processors/
+|   |   |-- chunker.py
+|   |   |-- pdf.py
+|   |   |-- pptx.py
+|   |   |-- webpage.py
+|   |   `-- youtube.py
+|   |-- rag/
+|   |   |-- chat.py
+|   |   |-- embeddings.py
+|   |   |-- gemini.py
+|   |   `-- vectorstore.py
+|   `-- routes/
+|       |-- chat.py
+|       |-- quiz.py
+|       |-- sessions.py
+|       `-- sources.py
+`-- frontend/
+    |-- app/
+    |   |-- globals.css
+    |   |-- layout.tsx
+    |   `-- page.tsx
+    |-- components/
+    |   |-- ChatPanel.tsx
+    |   |-- MessageBubble.tsx
+    |   |-- QuizMode.tsx
+    |   |-- SourceBadge.tsx
+    |   `-- SourceUpload.tsx
+    `-- lib/
+        `-- api.ts
 ```
 
-## 🚀 Getting Started
+## How It Works
 
-### Prerequisites
+1. A user creates a session in the frontend.
+2. The user uploads a PDF/PPTX file or submits a YouTube/webpage URL.
+3. The backend extracts text and source metadata from the submitted content.
+4. Extracted text is split into chunks and embedded.
+5. Chunks and embeddings are stored in Supabase.
+6. During chat, the backend retrieves the most relevant chunks for the question.
+7. The LLM receives only the retrieved context plus session history.
+8. The answer streams back to the UI with source references.
 
-- **Python 3.11+**
-- **uv** — [Install here](https://docs.astral.sh/uv/getting-started/installation/)
-- **Node.js 18+**
-- **Ollama** — [Install here](https://ollama.ai)
-- **Supabase account** — [Sign up free](https://supabase.com)
+## Prerequisites
 
-### 1. Clone & Setup
+- Python 3.11 or newer
+- uv for Python dependency management
+- Node.js 18 or newer
+- Supabase project with pgvector enabled
+- Ollama for local development, or a Gemini API key for Gemini mode
 
-```bash
-git clone <your-repo-url>
-cd AS-1
-```
+## Supabase Setup
 
-### 2. Supabase Setup
+1. Create a Supabase project.
+2. Open the Supabase SQL editor.
+3. Run the SQL in `backend/schema.sql`.
+4. Copy the project URL and anon key from the Supabase API settings.
+5. Add those values to `backend/.env`.
 
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** and run the contents of `backend/schema.sql`
-3. Get your **Project URL** and **anon key** from Settings → API
-
-### 3. Backend Setup
+## Backend Setup
 
 ```bash
 cd backend
-
-# Install dependencies (creates .venv automatically)
 uv sync
-
-# Configure environment
 cp .env.example .env
-# Edit .env with your Supabase URL + Key
-
-# Start the backend
 uv run uvicorn main:app --reload --port 8000
 ```
 
-### 4. LLM Setup
+The API will run at:
 
-For local Ollama development:
+```text
+http://localhost:8000
+```
+
+Useful backend endpoints:
+
+- `GET /health` - health check
+- `POST /api/sessions` - create a session
+- `POST /api/sources/upload` - upload PDF or PPTX files
+- `POST /api/sources/url` - add YouTube or webpage URLs
+- `POST /api/chat` - ask questions with optional streaming
+- `POST /api/quiz/generate` - generate source-based quiz questions
+
+## Frontend Setup
 
 ```bash
-ollama pull qwen2.5:1.5b
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend will run at:
+
+```text
+http://localhost:3000
+```
+
+If the backend is not running on `http://localhost:8000`, set this in the frontend environment:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+## Local LLM Setup with Ollama
+
+Install Ollama and pull the required local models:
+
+```bash
+ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
 ```
 
-For Gemini, set these values in `backend/.env`:
+Set the backend provider to Ollama:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+## Gemini Setup
+
+To use Gemini instead of Ollama, configure the backend environment:
 
 ```bash
 LLM_PROVIDER=gemini
@@ -126,47 +192,45 @@ GEMINI_EMBED_MODEL=gemini-embedding-001
 GEMINI_EMBED_DIMENSIONS=768
 ```
 
-### 5. Frontend Setup
+Keep `GEMINI_EMBED_DIMENSIONS=768` unless the Supabase schema is updated to use a different embedding size.
 
-```bash
-cd frontend
+## Environment Variables
 
-# Install dependencies
-npm install
+| Variable | Purpose | Required |
+| --- | --- | --- |
+| `SUPABASE_URL` | Supabase project URL | Yes |
+| `SUPABASE_KEY` | Supabase anon key | Yes |
+| `LLM_PROVIDER` | Selects `ollama` or `gemini` | Yes |
+| `OLLAMA_BASE_URL` | Local Ollama server URL | Required for Ollama |
+| `GEMINI_API_KEY` | Gemini API key | Required for Gemini |
+| `GEMINI_CHAT_MODEL` | Gemini chat model name | No |
+| `GEMINI_EMBED_MODEL` | Gemini embedding model name | No |
+| `GEMINI_EMBED_DIMENSIONS` | Embedding vector size for Gemini | No |
+| `GEMINI_MAX_RETRIES` | Retry attempts for Gemini API failures | No |
+| `GEMINI_RETRY_BASE_SECONDS` | Initial Gemini retry backoff | No |
+| `GEMINI_RETRY_MAX_SECONDS` | Maximum Gemini retry backoff | No |
+| `FRONTEND_ORIGINS` | Additional comma-separated CORS origins | No |
+| `NEXT_PUBLIC_API_URL` | Frontend API base URL | No |
 
-# Start dev server
-npm run dev
-```
+## Development Phases
 
-### 6. Open the App
+The assignment asks for phase-wise progress instead of one large commit. The implemented phases are:
 
-Visit **http://localhost:3000** — upload a PDF and start chatting!
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 1 | Project foundation, FastAPI backend, Next.js frontend, Supabase schema | Complete |
+| 2 | PDF ingestion, chunking, embeddings, and basic RAG chat | Complete |
+| 3 | YouTube, PPTX, and webpage processors | Complete |
+| 4 | Streaming responses and session memory | Complete |
+| 5 | Source summaries, citations, source badges, and out-of-scope handling | Complete |
+| 6 | Quiz mode and UI refinement based on the provided reference image | Complete |
+| 7 | Gemini provider support and production configuration | Complete |
 
-## 🔧 Environment Variables
+## Notes and Limitations
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `SUPABASE_URL` | Your Supabase project URL | ✅ |
-| `SUPABASE_KEY` | Supabase anon/public key | ✅ |
-| `OLLAMA_BASE_URL` | Ollama server URL (default: `http://localhost:11434`) | ✅ |
-| `LLM_PROVIDER` | `ollama` or `gemini` | ✅ |
-| `GEMINI_API_KEY` | Google Gemini API key (production only) | ❌ |
-| `GEMINI_CHAT_MODEL` | Gemini chat model (default: `gemini-2.5-flash`) | ❌ |
-| `GEMINI_EMBED_MODEL` | Gemini embedding model (default: `gemini-embedding-001`) | ❌ |
-| `GEMINI_EMBED_DIMENSIONS` | Embedding dimensions, keep `768` for current schema | ❌ |
-| `GEMINI_MAX_RETRIES` | Retry attempts for Gemini 429/5xx responses (default: `4`) | ❌ |
-| `GEMINI_RETRY_BASE_SECONDS` | Initial retry backoff in seconds (default: `2`) | ❌ |
-| `GEMINI_RETRY_MAX_SECONDS` | Maximum retry delay in seconds (default: `30`) | ❌ |
+- YouTube transcript quality depends on transcript availability for the submitted video.
+- Webpage extraction depends on the page being public and parseable by the backend.
+- The chatbot is designed to decline answers that are not supported by the uploaded or linked material.
+- Deployment requires setting production environment variables and configuring CORS for the deployed frontend domain.
 
-## 📋 Development Phases
 
-- [x] **Phase 1** — Foundation: PDF upload, basic RAG chat, themed UI
-- [x] **Phase 2** — YouTube, PPTX, and Webpage source processors
-- [x] **Phase 3** — Streaming responses + session memory
-- [x] **Phase 4** — Quiz mode + UI polish
-- [x] **Phase 5** — Gemini swap
-- [ ] **Deployment** — Hosting setup and production hardening
-
-## 📄 License
-
-MIT
