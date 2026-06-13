@@ -48,9 +48,33 @@ def parse_html(html: str) -> dict:
     """
     soup = BeautifulSoup(html, "html.parser")
 
-    # Remove script, style, nav, footer, header elements
-    for tag in soup.find_all(["script", "style", "nav", "footer", "noscript", "iframe"]):
+    # 1. Decompose common boilerplate tags
+    for tag in soup.find_all(["script", "style", "nav", "footer", "header", "noscript", "iframe", "aside"]):
         tag.decompose()
+
+    # 2. Decompose elements by class or ID containing boilerplate keywords
+    # Make sure we don't delete structural container tags like html, body, main, or article
+    boilerplate_keywords = [
+        "sidebar", "menu", "nav", "footer", "header", "aside", "toc",
+        "reflist", "references", "citation", "bibliography", "navbox",
+        "catlinks", "printfooter", "brand", "banner", "logo", "p-lang"
+    ]
+
+    def is_boilerplate(value):
+        if not value:
+            return False
+        if isinstance(value, list):
+            value = " ".join(value)
+        val_lower = str(value).lower()
+        return any(kw in val_lower for kw in boilerplate_keywords)
+
+    for tag in soup.find_all(class_=is_boilerplate):
+        if tag.name not in ("html", "body", "main", "article"):
+            tag.decompose()
+
+    for tag in soup.find_all(id=is_boilerplate):
+        if tag.name not in ("html", "body", "main", "article"):
+            tag.decompose()
 
     # Get title
     title = ""

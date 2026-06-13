@@ -18,20 +18,11 @@ export default function Home() {
     type: "success" | "error";
   } | null>(null);
 
-  // Initialize session on mount
-  useEffect(() => {
-    initSession();
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
   }, []);
 
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
-
-  const initSession = async () => {
+  const initSession = useCallback(async () => {
     try {
       const session = await createSession();
       setSessionId(session.id);
@@ -43,7 +34,21 @@ export default function Home() {
         "error"
       );
     }
-  };
+  }, [showToast]);
+
+  // Initialize session on mount
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void initSession();
+  }, [initSession]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const handleNewSession = async () => {
     setSources([]);
@@ -56,15 +61,11 @@ export default function Home() {
   const handleSourceAdded = useCallback((source: Source) => {
     setSources((prev) => [...prev, source]);
     showToast(`${source.source_name} processed successfully!`, "success");
-  }, []);
-
-  const showToast = (message: string, type: "success" | "error") => {
-    setToast({ message, type });
-  };
+  }, [showToast]);
 
   const handleError = useCallback((message: string) => {
     showToast(message, "error");
-  }, []);
+  }, [showToast]);
 
   const hasSourcesReady = sources.some((s) => s.status === "ready");
 
@@ -135,6 +136,7 @@ export default function Home() {
           <div className="chat-panel">
             <QuizMode
               sessionId={sessionId}
+              sources={sources}
               hasSourcesReady={hasSourcesReady}
               onError={handleError}
             />

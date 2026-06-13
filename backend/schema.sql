@@ -85,6 +85,7 @@ create or replace function match_documents(
 )
 returns table (
   id uuid,
+  source_id uuid,
   content text,
   source_type text,
   source_name text,
@@ -97,6 +98,7 @@ begin
   return query
   select
     d.id,
+    d.source_id,
     d.content,
     d.source_type,
     d.source_name,

@@ -241,7 +241,9 @@ export interface AnswerCheck {
 
 export async function generateQuiz(
   sessionId: string,
-  numQuestions: number = 5
+  numQuestions: number = 5,
+  sourceIds?: string[],
+  customInstructions?: string
 ): Promise<QuizResult> {
   const res = await fetch(`${API_BASE}/api/quiz/generate`, {
     method: "POST",
@@ -249,6 +251,8 @@ export async function generateQuiz(
     body: JSON.stringify({
       session_id: sessionId,
       num_questions: numQuestions,
+      source_ids: sourceIds && sourceIds.length > 0 ? sourceIds : null,
+      custom_instructions: customInstructions || "",
     }),
   });
   if (!res.ok) {

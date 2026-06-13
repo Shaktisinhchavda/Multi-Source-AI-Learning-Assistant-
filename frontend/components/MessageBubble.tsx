@@ -42,10 +42,20 @@ export default function MessageBubble({
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      const headingMatch = line.match(/^\s*(#{1,3})\s+(.+)/);
       const bulletMatch = line.match(/^[\s]*[-•*]\s+(.+)/);
       const numberedMatch = line.match(/^[\s]*\d+[.)]\s+(.+)/);
 
-      if (bulletMatch) {
+      if (headingMatch) {
+        flushList();
+        const level = headingMatch[1].length;
+        const className = `message-heading h${level}`;
+        elements.push(
+          <div key={`h-${i}`} className={className}>
+            {renderInline(headingMatch[2])}
+          </div>
+        );
+      } else if (bulletMatch) {
         if (listType !== "ul") flushList();
         listType = "ul";
         listItems.push(bulletMatch[1]);
@@ -91,6 +101,23 @@ export default function MessageBubble({
     return parts.length === 1 ? parts[0] : <>{parts}</>;
   };
 
+  const groupedSources = React.useMemo(() => {
+    const groups = new Map<string, SourceRef[]>();
+    for (const source of sources || []) {
+      const key = `${source.source_name}|${source.source_type}`;
+      const existing = groups.get(key) || [];
+      existing.push(source);
+      groups.set(key, existing);
+    }
+    return Array.from(groups.values()).map((group) => {
+      const first = group[0];
+      const refs = Array.from(
+        new Set(group.map((source) => source.source_ref).filter(Boolean))
+      );
+      return { ...first, refs };
+    });
+  }, [sources]);
+
   return (
     <div className={`message ${role}`}>
       <div className="message-avatar">
@@ -113,12 +140,13 @@ export default function MessageBubble({
             />
           )}
         </div>
-        {sources && sources.length > 0 && !isStreaming && (
+        {groupedSources.length > 0 && !isStreaming && (
           <div className="message-sources">
-            {sources.map((s, i) => (
+            {groupedSources.map((s, i) => (
               <span key={i} className="message-source-tag">
                 📄 {s.source_name}
-                {s.source_ref ? ` · ${s.source_ref}` : ""}
+                {s.refs.length > 0 ? ` · ${s.refs.slice(0, 3).join(", ")}` : ""}
+                {s.refs.length > 3 ? ` +${s.refs.length - 3} more` : ""}
               </span>
             ))}
           </div>

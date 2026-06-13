@@ -70,3 +70,67 @@ async def search_similar(
     ).execute()
 
     return result.data or []
+
+
+async def get_session_chunks(
+    session_id: str,
+    source_type: str | None = None,
+    limit: int = 60,
+) -> list[dict]:
+    """
+    Fetch stored chunks directly for fallback/context coverage.
+    Useful for broad source-level questions where vector search may be too narrow.
+    """
+    client = _get_client()
+
+    query = (
+        client.table("documents")
+        .select("content, source_type, source_name, source_ref, source_id, created_at")
+        .eq("session_id", session_id)
+        .order("created_at")
+        .limit(limit)
+    )
+
+    if source_type:
+        query = query.eq("source_type", source_type)
+
+    result = query.execute()
+    return result.data or []
+
+
+async def get_session_sources(session_id: str) -> list[dict]:
+    """Fetch ready sources for a session."""
+    client = _get_client()
+
+    result = (
+        client.table("sources")
+        .select("id, source_name, source_type")
+        .eq("session_id", session_id)
+        .eq("status", "ready")
+        .order("created_at")
+        .execute()
+    )
+    return result.data or []
+
+
+async def get_chunks_for_sources(
+    session_id: str,
+    source_ids: list[str],
+    limit: int = 80,
+) -> list[dict]:
+    """Fetch stored chunks for specific source IDs."""
+    if not source_ids:
+        return []
+
+    client = _get_client()
+
+    result = (
+        client.table("documents")
+        .select("content, source_type, source_name, source_ref, source_id, created_at")
+        .eq("session_id", session_id)
+        .in_("source_id", source_ids)
+        .order("created_at")
+        .limit(limit)
+        .execute()
+    )
+    return result.data or []
