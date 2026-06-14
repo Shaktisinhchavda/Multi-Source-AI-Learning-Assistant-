@@ -105,6 +105,8 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
         'writeautomaticsub': True,
         'subtitleslangs': ['en', 'en-US', 'en-GB'],
         'subtitlesformat': 'json3',
+        'format': 'best',
+        'ignore_no_formats_error': True,
         'quiet': True,
         'no_warnings': True,
     }
