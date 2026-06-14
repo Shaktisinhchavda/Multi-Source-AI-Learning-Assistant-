@@ -103,7 +103,7 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
         'skip_download': True,
         'writesubtitles': True,
         'writeautomaticsub': True,
-        'subtitleslangs': ['en', 'en-US', 'en-GB'],
+        'subtitleslangs': ['all'],
         'subtitlesformat': 'json3',
         'format': 'best',
         'ignore_no_formats_error': True,
@@ -124,6 +124,12 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
             # Check for subtitles
             subtitles = info.get('subtitles', {})
             auto_captions = info.get('automatic_captions', {})
+            logger.info(
+                "YouTube subtitle languages for %s: manual=%s automatic=%s",
+                video_id,
+                list(subtitles.keys()),
+                list(auto_captions.keys()),
+            )
 
             # Try manual subs first, then auto-captions
             sub_data = None
