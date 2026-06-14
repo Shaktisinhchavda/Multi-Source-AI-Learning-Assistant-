@@ -66,6 +66,47 @@ def _youtube_cookiefile():
                 logger.warning("Failed to remove temporary YouTube cookies file")
 
 
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _youtube_extractor_args() -> dict:
+    settings = get_settings()
+    youtube_args = {}
+
+    player_clients = _split_csv(settings.youtube_player_clients)
+    if player_clients:
+        youtube_args['player_client'] = player_clients
+
+    if settings.youtube_visitor_data:
+        youtube_args['visitor_data'] = [settings.youtube_visitor_data]
+
+    if settings.youtube_po_token:
+        youtube_args['po_token'] = [settings.youtube_po_token]
+
+    return {'youtube': youtube_args} if youtube_args else {}
+
+
+def _apply_youtube_network_options(ydl_opts: dict) -> dict:
+    settings = get_settings()
+    opts = dict(ydl_opts)
+
+    extractor_args = _youtube_extractor_args()
+    if extractor_args:
+        opts['extractor_args'] = extractor_args
+
+    if settings.youtube_proxy:
+        opts['proxy'] = settings.youtube_proxy
+
+    if settings.youtube_user_agent:
+        opts['http_headers'] = {
+            **opts.get('http_headers', {}),
+            'User-Agent': settings.youtube_user_agent,
+        }
+
+    return opts
+
+
 def extract_video_id(url: str) -> str:
     """
     Extract video ID from various YouTube URL formats.
@@ -101,7 +142,7 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    ydl_opts_base = {
+    ydl_opts_base = _apply_youtube_network_options({
         'skip_download': True,
         'writesubtitles': True,
         'writeautomaticsub': True,
@@ -111,7 +152,7 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
         'ignore_no_formats_error': True,
         'quiet': True,
         'no_warnings': True,
-    }
+    })
 
     errors = []
     with _youtube_cookiefile() as cookiefile:
@@ -244,18 +285,13 @@ def _download_youtube_audio(video_id: str, tmpdir: str) -> str:
     import yt_dlp
 
     url = f"https://www.youtube.com/watch?v={video_id}"
-    ydl_opts = {
+    ydl_opts = _apply_youtube_network_options({
         'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
         'outtmpl': os.path.join(tmpdir, '%(id)s.%(ext)s'),
         'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'web_safari', 'mweb', 'android'],
-            },
-        },
         'quiet': True,
         'no_warnings': True,
-    }
+    })
 
     errors = []
     with _youtube_cookiefile() as cookiefile:
@@ -470,10 +506,11 @@ def process_youtube(url: str) -> dict:
         details = "; ".join(errors)
         if _is_youtube_bot_check_error(details):
             raise YouTubeTranscriptError(
-                "YouTube blocked unauthenticated transcript access for this video. "
-                "Set YOUTUBE_COOKIES_B64 in the deployed backend environment to "
-                "a base64-encoded Netscape-format cookies.txt value, then redeploy "
-                "or restart the backend and try again."
+                "YouTube blocked this server while fetching the video audio. "
+                "The video has no usable captions, and audio transcription could "
+                "not start because yt-dlp hit YouTube's bot check. Refresh "
+                "YOUTUBE_COOKIES_B64, or configure YOUTUBE_PROXY / "
+                "YOUTUBE_PO_TOKEN for the deployed backend and restart it."
             )
 
         raise YouTubeTranscriptError(

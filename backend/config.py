@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     youtube_cookies_b64: str = ""
     youtube_audio_fallback: bool = True
     youtube_audio_max_mb: int = 25
+    youtube_proxy: str = ""
+    youtube_user_agent: str = ""
+    youtube_player_clients: str = "web,web_safari,mweb,android"
+    youtube_visitor_data: str = ""
+    youtube_po_token: str = ""
 
     class Config:
         env_file = ".env"
