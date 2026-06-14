@@ -101,7 +101,7 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    ydl_opts = {
+    ydl_opts_base = {
         'skip_download': True,
         'writesubtitles': True,
         'writeautomaticsub': True,
@@ -113,96 +113,106 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
         'no_warnings': True,
     }
 
+    errors = []
     with _youtube_cookiefile() as cookiefile:
-        if cookiefile:
-            ydl_opts['cookiefile'] = cookiefile
-            logger.warning("Using configured YouTube cookies for %s", video_id)
-        else:
-            logger.warning("No YouTube cookies configured for %s", video_id)
+        cookie_candidates = [cookiefile, None] if cookiefile else [None]
+        for active_cookiefile in cookie_candidates:
+            ydl_opts = dict(ydl_opts_base)
+            if active_cookiefile:
+                ydl_opts['cookiefile'] = active_cookiefile
+                logger.warning("Using configured YouTube cookies for %s", video_id)
+            else:
+                logger.warning("Trying YouTube transcript fetch without cookies for %s", video_id)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
-                info = ydl.extract_info(url, download=False)
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    try:
+                        info = ydl.extract_info(url, download=False)
+                    except Exception as e:
+                        raise ValueError(f"yt-dlp failed to fetch video info: {str(e)}")
+
+                    # Check for subtitles
+                    subtitles = info.get('subtitles', {})
+                    auto_captions = info.get('automatic_captions', {})
+                    logger.warning(
+                        "YouTube subtitle languages for %s: manual=%s automatic=%s",
+                        video_id,
+                        list(subtitles.keys()),
+                        list(auto_captions.keys()),
+                    )
+
+                    # Try manual subs first, then auto-captions
+                    sub_data = None
+                    for lang in ['en', 'en-US', 'en-GB']:
+                        if lang in subtitles:
+                            sub_data = subtitles[lang]
+                            break
+                    if not sub_data:
+                        for lang in ['en', 'en-US', 'en-GB']:
+                            if lang in auto_captions:
+                                sub_data = auto_captions[lang]
+                                break
+
+                    # If no English, try any language
+                    if not sub_data:
+                        if subtitles:
+                            sub_data = next(iter(subtitles.values()))
+                        elif auto_captions:
+                            sub_data = next(iter(auto_captions.values()))
+
+                    if not sub_data:
+                        raise ValueError("No subtitles or auto-captions available.")
+
+                    # Find json3 format or fall back to any format
+                    json3_url = None
+                    for fmt in sub_data:
+                        if fmt.get('ext') == 'json3':
+                            json3_url = fmt.get('url')
+                            break
+
+                    # If we have json3 URL, fetch and parse it
+                    if json3_url:
+                        import httpx
+                        resp = httpx.get(json3_url, timeout=30.0)
+                        resp.raise_for_status()
+                        caption_data = resp.json()
+
+                        segments = []
+                        for event in caption_data.get('events', []):
+                            start_ms = event.get('tStartMs', 0)
+                            segs = event.get('segs', [])
+                            text = ''.join(s.get('utf8', '') for s in segs).strip()
+                            if text and text != '\n':
+                                segments.append({
+                                    'text': text,
+                                    'start': start_ms / 1000.0,
+                                })
+                        return segments
+
+                    # Fallback: try to get vtt/srv formats and parse text
+                    # Use yt-dlp to write subs to a temp file
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        dl_opts = {
+                            **ydl_opts,
+                            'outtmpl': os.path.join(tmpdir, '%(id)s'),
+                            'writesubtitles': True,
+                            'writeautomaticsub': True,
+                        }
+                        with yt_dlp.YoutubeDL(dl_opts) as ydl2:
+                            ydl2.download([url])
+
+                        # Find the subtitle file
+                        for f in os.listdir(tmpdir):
+                            if f.endswith('.vtt') or f.endswith('.srt'):
+                                filepath = os.path.join(tmpdir, f)
+                                return _parse_vtt_file(filepath)
             except Exception as e:
-                raise ValueError(f"yt-dlp failed to fetch video info: {str(e)}")
+                label = "with cookies" if active_cookiefile else "without cookies"
+                errors.append(f"{label}: {str(e)}")
+                logger.warning("yt-dlp transcript fetch failed %s for %s: %s", label, video_id, e)
+                continue
 
-            # Check for subtitles
-            subtitles = info.get('subtitles', {})
-            auto_captions = info.get('automatic_captions', {})
-            logger.warning(
-                "YouTube subtitle languages for %s: manual=%s automatic=%s",
-                video_id,
-                list(subtitles.keys()),
-                list(auto_captions.keys()),
-            )
-
-            # Try manual subs first, then auto-captions
-            sub_data = None
-            for lang in ['en', 'en-US', 'en-GB']:
-                if lang in subtitles:
-                    sub_data = subtitles[lang]
-                    break
-            if not sub_data:
-                for lang in ['en', 'en-US', 'en-GB']:
-                    if lang in auto_captions:
-                        sub_data = auto_captions[lang]
-                        break
-
-            # If no English, try any language
-            if not sub_data:
-                if subtitles:
-                    sub_data = next(iter(subtitles.values()))
-                elif auto_captions:
-                    sub_data = next(iter(auto_captions.values()))
-
-            if not sub_data:
-                raise ValueError("No subtitles or auto-captions available.")
-
-            # Find json3 format or fall back to any format
-            json3_url = None
-            for fmt in sub_data:
-                if fmt.get('ext') == 'json3':
-                    json3_url = fmt.get('url')
-                    break
-
-            # If we have json3 URL, fetch and parse it
-            if json3_url:
-                import httpx
-                resp = httpx.get(json3_url, timeout=30.0)
-                resp.raise_for_status()
-                caption_data = resp.json()
-
-                segments = []
-                for event in caption_data.get('events', []):
-                    start_ms = event.get('tStartMs', 0)
-                    segs = event.get('segs', [])
-                    text = ''.join(s.get('utf8', '') for s in segs).strip()
-                    if text and text != '\n':
-                        segments.append({
-                            'text': text,
-                            'start': start_ms / 1000.0,
-                        })
-                return segments
-
-            # Fallback: try to get vtt/srv formats and parse text
-            # Use yt-dlp to write subs to a temp file
-            with tempfile.TemporaryDirectory() as tmpdir:
-                dl_opts = {
-                    **ydl_opts,
-                    'outtmpl': os.path.join(tmpdir, '%(id)s'),
-                    'writesubtitles': True,
-                    'writeautomaticsub': True,
-                }
-                with yt_dlp.YoutubeDL(dl_opts) as ydl2:
-                    ydl2.download([url])
-
-                # Find the subtitle file
-                for f in os.listdir(tmpdir):
-                    if f.endswith('.vtt') or f.endswith('.srt'):
-                        filepath = os.path.join(tmpdir, f)
-                        return _parse_vtt_file(filepath)
-
-        raise ValueError("Could not parse subtitle data.")
+    raise ValueError("Could not parse subtitle data. " + "; ".join(errors))
 
 
 def _audio_mime_type(path: str) -> str:
@@ -247,15 +257,26 @@ def _download_youtube_audio(video_id: str, tmpdir: str) -> str:
         'no_warnings': True,
     }
 
+    errors = []
     with _youtube_cookiefile() as cookiefile:
-        if cookiefile:
-            ydl_opts['cookiefile'] = cookiefile
-            logger.warning("Using configured YouTube cookies for audio download %s", video_id)
-        else:
-            logger.warning("No YouTube cookies configured for audio download %s", video_id)
+        cookie_candidates = [cookiefile, None] if cookiefile else [None]
+        for active_cookiefile in cookie_candidates:
+            active_opts = dict(ydl_opts)
+            if active_cookiefile:
+                active_opts['cookiefile'] = active_cookiefile
+                logger.warning("Using configured YouTube cookies for audio download %s", video_id)
+            else:
+                logger.warning("Trying YouTube audio download without cookies for %s", video_id)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+            try:
+                with yt_dlp.YoutubeDL(active_opts) as ydl:
+                    ydl.download([url])
+                break
+            except Exception as e:
+                label = "with cookies" if active_cookiefile else "without cookies"
+                errors.append(f"{label}: {str(e)}")
+                logger.warning("YouTube audio download failed %s for %s: %s", label, video_id, e)
+                continue
 
     files = [
         os.path.join(tmpdir, f)
@@ -263,7 +284,7 @@ def _download_youtube_audio(video_id: str, tmpdir: str) -> str:
         if os.path.isfile(os.path.join(tmpdir, f))
     ]
     if not files:
-        raise ValueError("Could not download YouTube audio for transcription.")
+        raise ValueError("Could not download YouTube audio for transcription. " + "; ".join(errors))
     return max(files, key=os.path.getsize)
 
 
