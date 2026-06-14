@@ -104,6 +104,19 @@ AS-1/
 7. The LLM receives only the retrieved context plus session history.
 8. The answer streams back to the UI with source references.
 
+## Architectural Decisions
+
+- Separate frontend and backend modules keep the UI, API, document processing, and RAG logic independently maintainable.
+- FastAPI was used for the backend because it provides typed request handling, async endpoints, automatic API documentation, and simple support for streaming responses.
+- Next.js was used for the frontend to provide a structured React application with reusable components for chat, source upload, source badges, and quiz mode.
+- Supabase PostgreSQL with pgvector was selected so source chunks, chat sessions, messages, and embeddings can live in one managed database.
+- The system uses retrieval-augmented generation instead of sending full documents to the LLM. This keeps prompts smaller, improves relevance, and satisfies the assignment requirement to retrieve chunks before answering.
+- Each supported source type has its own processor module. This keeps PDF, PPTX, YouTube, and webpage parsing isolated while producing a shared chunk format for retrieval.
+- Source metadata is preserved during chunking so answers can cite pages, slides, webpages, or timestamps instead of returning unsupported generic responses.
+- Chat history is stored per session so follow-up questions can use previous conversation context without mixing data between sessions.
+- Streaming is handled from the backend to the frontend so users see answers token by token instead of waiting for a complete response.
+- LLM and embedding providers are configurable. Ollama supports local development, while Gemini can be used for hosted or production-style deployments.
+
 ## Prerequisites
 
 - Python 3.11 or newer
@@ -232,5 +245,4 @@ The assignment asks for phase-wise progress instead of one large commit. The imp
 - Webpage extraction depends on the page being public and parseable by the backend.
 - The chatbot is designed to decline answers that are not supported by the uploaded or linked material.
 - Deployment requires setting production environment variables and configuring CORS for the deployed frontend domain.
-
 
