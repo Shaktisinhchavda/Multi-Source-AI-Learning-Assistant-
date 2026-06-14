@@ -10,7 +10,7 @@ from supabase import create_client
 from config import get_settings
 from processors.pdf import process_pdf
 from processors.pptx import process_pptx
-from processors.youtube import process_youtube
+from processors.youtube import YouTubeTranscriptError, process_youtube
 from processors.webpage import process_webpage
 from rag.embeddings import embed_texts
 
@@ -206,6 +206,14 @@ async def add_url_source(body: URLSource):
             "summary": summary,
             "chunk_count": len(chunks),
         }
+
+    except YouTubeTranscriptError as e:
+        client.table("sources").update({
+            "status": "error",
+            "error_message": str(e),
+        }).eq("id", source_id).execute()
+
+        raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
         client.table("sources").update({

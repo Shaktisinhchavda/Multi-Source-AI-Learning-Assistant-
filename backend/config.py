@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     gemini_retry_base_seconds: float = 2.0
     gemini_retry_max_seconds: float = 30.0
 
+    # YouTube ingestion
+    youtube_cookies_file: str = ""
+    youtube_cookies_b64: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
