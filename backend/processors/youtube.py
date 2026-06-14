@@ -10,9 +10,11 @@ import logging
 import tempfile
 import os
 import base64
+from pathlib import Path
 from contextlib import contextmanager
 from .chunker import chunk_text
 from config import get_settings
+from rag.gemini import extract_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +205,135 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
         raise ValueError("Could not parse subtitle data.")
 
 
+def _audio_mime_type(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    if ext in ('.m4a', '.mp4'):
+        return 'audio/mp4'
+    if ext == '.mp3':
+        return 'audio/mpeg'
+    if ext == '.wav':
+        return 'audio/wav'
+    if ext == '.ogg':
+        return 'audio/ogg'
+    if ext == '.webm':
+        return 'audio/webm'
+    return 'application/octet-stream'
+
+
+def _extract_gemini_text(data: dict) -> str:
+    parts = (
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [])
+    )
+    return "".join(part.get("text", "") for part in parts).strip()
+
+
+def _download_youtube_audio(video_id: str, tmpdir: str) -> str:
+    """Download audio-only media for transcription fallback."""
+    import yt_dlp
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    ydl_opts = {
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
+        'outtmpl': os.path.join(tmpdir, '%(id)s.%(ext)s'),
+        'noplaylist': True,
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    with _youtube_cookiefile() as cookiefile:
+        if cookiefile:
+            ydl_opts['cookiefile'] = cookiefile
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
+    files = [
+        os.path.join(tmpdir, f)
+        for f in os.listdir(tmpdir)
+        if os.path.isfile(os.path.join(tmpdir, f))
+    ]
+    if not files:
+        raise ValueError("Could not download YouTube audio for transcription.")
+    return max(files, key=os.path.getsize)
+
+
+def _transcribe_audio_with_gemini(audio_path: str) -> str:
+    """Transcribe an audio file using Gemini inline audio input."""
+    import httpx
+
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise ValueError("GEMINI_API_KEY is required for YouTube audio transcription fallback.")
+
+    max_bytes = max(1, settings.youtube_audio_max_mb) * 1024 * 1024
+    audio_size = os.path.getsize(audio_path)
+    if audio_size > max_bytes:
+        raise ValueError(
+            "YouTube captions were unavailable and the audio is too large for "
+            f"fallback transcription ({audio_size // (1024 * 1024)} MB)."
+        )
+
+    with open(audio_path, 'rb') as audio_file:
+        audio_b64 = base64.b64encode(audio_file.read()).decode('ascii')
+
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "text": (
+                        "Transcribe this audio accurately. Return only the spoken "
+                        "transcript text. Do not summarize, add headings, or include "
+                        "commentary."
+                    )
+                },
+                {
+                    "inlineData": {
+                        "mimeType": _audio_mime_type(audio_path),
+                        "data": audio_b64,
+                    }
+                },
+            ],
+        }],
+        "generationConfig": {
+            "temperature": 0.0,
+        },
+    }
+
+    url = (
+        f"{settings.gemini_base_url}/models/"
+        f"{settings.gemini_chat_model}:generateContent"
+    )
+    with httpx.Client(timeout=300.0) as client:
+        response = client.post(
+            url,
+            params={"key": settings.gemini_api_key},
+            json=payload,
+        )
+
+    if response.status_code >= 400:
+        raise ValueError(
+            "Gemini audio transcription request failed with HTTP "
+            f"{response.status_code}: {extract_error_message(response)}"
+        )
+
+    transcript = _extract_gemini_text(response.json())
+    if not transcript:
+        raise ValueError("Gemini returned an empty audio transcript.")
+    return transcript
+
+
+def _fetch_with_audio_transcription(video_id: str) -> list[dict]:
+    """Fallback for videos whose caption tracks are hidden from the backend."""
+    logger.warning("Falling back to audio transcription for %s", video_id)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audio_path = _download_youtube_audio(video_id, tmpdir)
+        transcript = _transcribe_audio_with_gemini(audio_path)
+    return [{'text': transcript, 'start': 0.0}]
+
+
 def _parse_vtt_file(filepath: str) -> list[dict]:
     """Parse a VTT/SRT subtitle file into segments."""
     segments = []
@@ -297,6 +428,14 @@ def process_youtube(url: str) -> dict:
         except Exception as e:
             errors.append(f"transcript-api: {str(e)}")
             logger.warning(f"transcript API also failed for {video_id}: {e}")
+
+    settings = get_settings()
+    if not segments and settings.youtube_audio_fallback:
+        try:
+            segments = _fetch_with_audio_transcription(video_id)
+        except Exception as e:
+            errors.append(f"audio-transcription: {str(e)}")
+            logger.warning(f"audio transcription fallback failed for {video_id}: {e}")
 
     if not segments:
         details = "; ".join(errors)

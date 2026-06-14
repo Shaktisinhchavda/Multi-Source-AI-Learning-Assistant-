@@ -224,6 +224,8 @@ Keep `GEMINI_EMBED_DIMENSIONS=768` unless the Supabase schema is updated to use 
 | `GEMINI_RETRY_MAX_SECONDS` | Maximum Gemini retry backoff | No |
 | `YOUTUBE_COOKIES_FILE` | Optional Netscape-format cookies.txt path for YouTube transcript requests that require sign-in | No |
 | `YOUTUBE_COOKIES_B64` | Optional base64-encoded Netscape-format cookies.txt contents for deployed backends | No |
+| `YOUTUBE_AUDIO_FALLBACK` | Enables Gemini audio transcription when YouTube captions are unavailable | No |
+| `YOUTUBE_AUDIO_MAX_MB` | Maximum downloaded YouTube audio size accepted for fallback transcription | No |
 | `FRONTEND_ORIGINS` | Additional comma-separated CORS origins | No |
 | `NEXT_PUBLIC_API_URL` | Frontend API base URL | No |
 
@@ -243,7 +245,7 @@ The assignment asks for phase-wise progress instead of one large commit. The imp
 
 ## Notes and Limitations
 
-- YouTube transcript quality depends on transcript availability for the submitted video. Some videos also require authenticated YouTube cookies. For local development, export cookies to a Netscape-format `cookies.txt`, set `YOUTUBE_COOKIES_FILE` in `backend/.env`, and restart the backend. For deployed backends, base64-encode that file and set the result as the `YOUTUBE_COOKIES_B64` environment variable.
+- YouTube transcript quality depends on transcript availability for the submitted video. Some videos also require authenticated YouTube cookies. For local development, export cookies to a Netscape-format `cookies.txt`, set `YOUTUBE_COOKIES_FILE` in `backend/.env`, and restart the backend. For deployed backends, base64-encode that file and set the result as the `YOUTUBE_COOKIES_B64` environment variable. If caption tracks are unavailable, the backend can fall back to Gemini audio transcription when `YOUTUBE_AUDIO_FALLBACK=true` and `GEMINI_API_KEY` is configured.
 - Webpage extraction depends on the page being public and parseable by the backend.
 - The chatbot is designed to decline answers that are not supported by the uploaded or linked material.
 - Deployment requires setting production environment variables and configuring CORS for the deployed frontend domain.

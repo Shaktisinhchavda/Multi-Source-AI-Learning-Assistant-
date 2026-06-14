@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # YouTube ingestion
     youtube_cookies_file: str = ""
     youtube_cookies_b64: str = ""
+    youtube_audio_fallback: bool = True
+    youtube_audio_max_mb: int = 25
 
     class Config:
         env_file = ".env"
