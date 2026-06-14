@@ -114,6 +114,9 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
     with _youtube_cookiefile() as cookiefile:
         if cookiefile:
             ydl_opts['cookiefile'] = cookiefile
+            logger.warning("Using configured YouTube cookies for %s", video_id)
+        else:
+            logger.warning("No YouTube cookies configured for %s", video_id)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
@@ -124,7 +127,7 @@ def _fetch_with_ytdlp(video_id: str) -> list[dict]:
             # Check for subtitles
             subtitles = info.get('subtitles', {})
             auto_captions = info.get('automatic_captions', {})
-            logger.info(
+            logger.warning(
                 "YouTube subtitle languages for %s: manual=%s automatic=%s",
                 video_id,
                 list(subtitles.keys()),
