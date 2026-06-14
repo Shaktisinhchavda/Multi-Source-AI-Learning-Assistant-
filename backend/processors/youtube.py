@@ -238,6 +238,11 @@ def _download_youtube_audio(video_id: str, tmpdir: str) -> str:
         'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
         'outtmpl': os.path.join(tmpdir, '%(id)s.%(ext)s'),
         'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'web_safari', 'mweb', 'android'],
+            },
+        },
         'quiet': True,
         'no_warnings': True,
     }
@@ -245,6 +250,9 @@ def _download_youtube_audio(video_id: str, tmpdir: str) -> str:
     with _youtube_cookiefile() as cookiefile:
         if cookiefile:
             ydl_opts['cookiefile'] = cookiefile
+            logger.warning("Using configured YouTube cookies for audio download %s", video_id)
+        else:
+            logger.warning("No YouTube cookies configured for audio download %s", video_id)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
