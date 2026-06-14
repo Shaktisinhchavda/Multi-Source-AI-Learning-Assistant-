@@ -20,9 +20,21 @@ class SessionResponse(BaseModel):
 async def create_session():
     """Create a new chat session."""
     settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase is not configured. Set SUPABASE_URL and SUPABASE_KEY.",
+        )
+
     client = create_client(settings.supabase_url, settings.supabase_key)
 
-    result = client.table("sessions").insert({"metadata": {}}).execute()
+    try:
+        result = client.table("sessions").insert({"metadata": {}}).execute()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Supabase session insert failed: {str(e)}",
+        ) from e
 
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create session")
